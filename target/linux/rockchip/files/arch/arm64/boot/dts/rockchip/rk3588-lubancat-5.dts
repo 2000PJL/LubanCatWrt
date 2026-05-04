@@ -159,9 +159,13 @@
 		regulator-name = "vbus_typec";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
+<<<<<<< HEAD
 		regulator-always-on;
 		enable-active-high;
 		regulator-boot-on;
+=======
+		enable-active-high;
+>>>>>>> HEAD@{1}
 		gpio = <&gpio2 RK_PB5 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_usb>;
 		pinctrl-names = "default";
@@ -770,18 +774,29 @@
 };
 
 &sdmmc {
+<<<<<<< HEAD
 	max-frequency = <200000000>;
 	no-sdio;
 	no-mmc;
+=======
+>>>>>>> HEAD@{1}
 	bus-width = <4>;
 	cap-mmc-highspeed;
 	cap-sd-highspeed;
 	disable-wp;
+<<<<<<< HEAD
 	sd-uhs-sdr104;
 	vmmc-supply = <&vcc_3v3_s3>;
 	vqmmc-supply = <&vccio_sd_s0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&sdmmc_bus4 &sdmmc_clk &sdmmc_cmd &sdmmc_det>;
+=======
+	no-mmc;
+	no-sdio;
+	max-frequency = <50000000>;
+	vmmc-supply = <&vcc_3v3_s3>;
+	vqmmc-supply = <&vccio_sd_s0>;
+>>>>>>> HEAD@{1}
 	status = "okay";
 };
 
@@ -936,9 +951,15 @@
 	};
 };
 
+<<<<<<< HEAD
 /* USB3.0 OTG0 Controller  */
 &usb_host0_xhci {
 	dr_mode = "host";
+=======
+/* USB3.1 OTG0 Controller  */
+&usb_host0_xhci {
+	dr_mode = "otg";
+>>>>>>> HEAD@{1}
 	usb-role-switch;
 	
 	status = "okay";

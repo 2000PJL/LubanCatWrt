@@ -414,7 +414,11 @@
 &mdio1 {
 	rgmii_phy1: phy@0 {
 		compatible = "ethernet-phy-ieee802.3-c22";
+<<<<<<< HEAD
 		reg = <0x00>;
+=======
+		reg = <0x0>;
+>>>>>>> HEAD@{1}
 	};
 };
 
