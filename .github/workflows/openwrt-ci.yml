@@ -130,6 +130,11 @@ jobs:
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
+      - name: Generate Config Hash
+        run: |
+          # Create a hash based on essential configuration elements that affect toolchain
+          # excluding package selections which shouldn't invalidate toolchain caches
+          echo "CONFIG_KEY=$(grep -E '^CONFIG_TARGET|^CONFIG_ARCH|^CONFIG_LINUX_|^CONFIG_TOOLCHAIN_|^CONFIG_GCC_|^CONFIG_UCLIBC' .config 2>/dev/null | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
 
       - name: Setup CCache
         run: |
@@ -155,7 +160,7 @@ jobs:
             dl
             build_dir/toolchain-*
             staging_dir/toolchain-*
-          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('.config') }}
+          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
           restore-keys: |
             toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -166,7 +171,7 @@ jobs:
           path: |
             build_dir/host*
             staging_dir/host*
-          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('.config') }}
+          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
           restore-keys: |
             tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -176,7 +181,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .ccache
-          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('.config') }}
+          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
           restore-keys: |
             ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -192,6 +197,7 @@ jobs:
           echo "--------------------------硬盘信息--------------------------"
           echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
           du -sh build_dir
+          du -sh .ccache
 
       - name: Compile firmware
         id: compile
@@ -222,6 +228,7 @@ jobs:
           echo "--------------------------硬盘信息--------------------------"
           echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
           du -sh build_dir
+          du -sh .ccache
 
 
       - name: Prepare artifact
