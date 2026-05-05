@@ -124,6 +124,13 @@ jobs:
           else
             echo "Warning: config/lubancat_defconfig not found, using default"
           fi
+          # Enable ccache in the config before running defconfig
+          if [ -f .config ]; then
+            # Enable ccache support in OpenWrt build system
+            echo "CONFIG_CCACHE=y" >> .config
+            echo "CONFIG_CCACHE_DIR=\"$(pwd)/.ccache\"" >> .config
+            echo "CONFIG_CCACHE_SIZE=\"6G\"" >> .config
+          fi
           make defconfig 2>/dev/null
           DEVICE_TARGET=$(grep CONFIG_TARGET_BOARD .config | awk -F '"' '{print $2}' 2>/dev/null || echo "rockchip")
           DEVICE_SUBTARGET=$(grep CONFIG_TARGET_SUBTARGET .config | awk -F '"' '{print $2}' 2>/dev/null || echo "rk3568")
@@ -146,11 +153,24 @@ jobs:
           cache_dir_levels = 2
           compression = true
           compression_level = 6
+          sloppiness = file_stat_matches,include_file_mtime,include_file_ctime,pch_defines,time_macros
+          hash_dir = false
+          temporary_dir = /tmp/ccache-temp
           EOF
           export CCACHE_DIR=$PWD/.ccache
           export PATH="/usr/lib/ccache:$PATH"
+          echo "export CCACHE_DIR=$PWD/.ccache" >> $GITHUB_ENV
           ccache -s
         shell: bash
+      
+      - name: Prepare CCache Symlink
+        run: |
+          mkdir -p build_dir
+          ln -sf $PWD/.ccache build_dir/ccache
+          
+          # Ensure staging_dir has proper ccache link too
+          mkdir -p staging_dir/toolchain-*/bin
+          ln -sf $(which ccache) staging_dir/toolchain-*/bin/ccache 2>/dev/null || true
 
       - name: Cache downloads and toolchain
         id: toolchain
