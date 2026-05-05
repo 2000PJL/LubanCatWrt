@@ -1,0 +1,330 @@
+# 
+# OpenWrt CI for LubanCat
+# 
+name: OpenWrt-CI for LubanCat
+
+on:
+  schedule:
+    - cron: 0 20 * * 1,4
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: Asia/Shanghai
+  FIRMWARE_RELEASE: true
+  FIRMWARE_TAG: LubanCat
+
+jobs:
+  build_openwrt:
+    name: Build OpenWrt Firmware for LubanCat
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check recent commits (via API)
+        id: check_commits
+        run: |
+          SINCE=$(date -d '4 days ago' --utc +%Y-%m-%dT%H:%M:%SZ)
+          COUNT=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/commits?since=${SINCE}" | jq '. | length')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Skip build if no recent commits
+        if: steps.check_commits.outputs.should_build == 'false'
+        run: |
+          echo "No commits in the last 4 days. Skipping build."
+          exit 0
+    
+      - name: Check Server Performance
+        run: |
+          echo "警告⚠"
+          echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
+          echo -e "已知CPU型号(降序): 7763，8370C，8272CL，8171M，E5-2673\n"
+          echo "--------------------------CPU信息--------------------------"
+          echo "CPU物理数量: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+          echo "CPU核心数量: $(nproc)"
+          echo -e "CPU型号信息:$(cat /proc/cpuinfo | grep -m1 name | awk -F: '{print $2}')\n"
+          echo "--------------------------内存信息--------------------------"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+      - name: Space cleanup and Initialization environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          docker image prune -f
+          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android
+          sudo -E apt-mark hold grub-efi-amd64-signed
+          sudo -E apt update
+          sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* snap*
+          sudo -E apt -y full-upgrade
+          sudo -E apt -y install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E systemctl daemon-reload
+          sudo -E apt -y autoremove --purge
+          sudo -E apt -y clean
+          sudo -E timedatectl set-timezone "$TZ"
+
+      - name: Check Server Storage 01
+        run: |
+          echo "警告⚠"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+      - name: Checkout OpenWrt
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Get Source Info
+        run: |
+          echo "SOURCE_REPO=${{ github.repository }}" >> $GITHUB_ENV
+          COMMIT_AUTHOR=$(git log -1 --format="作者: %an <%ae>" 2>/dev/null || echo "作者: unknown")
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          COMMIT_DATE=$(git log -1 --format="时间: %ci" 2>/dev/null || echo "时间: unknown")
+          echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+          COMMIT_MESSAGE=$(git log -1 --format="内容: %s" 2>/dev/null || echo "内容: unknown")
+          echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
+          COMMIT_HASH=$(git log -1 --format="hash: %H" 2>/dev/null || echo "hash: unknown")
+          echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "FILE_DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Check Server Storage 02
+        run: |
+          echo "警告⚠"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+      - name: Get Device Info
+        run: |
+          if [ -f config/lubancat_defconfig ]; then
+            cp config/lubancat_defconfig .config
+          else
+            echo "Warning: config/lubancat_defconfig not found, using default"
+          fi
+          # Enable ccache in the config before running defconfig
+          if [ -f .config ]; then
+            # Enable ccache support in OpenWrt build system
+            echo "CONFIG_CCACHE=y" >> .config
+            echo "CONFIG_CCACHE_DIR=\"$(pwd)/.ccache\"" >> .config
+            echo "CONFIG_CCACHE_SIZE=\"6G\"" >> .config
+          fi
+          make defconfig 2>/dev/null
+          DEVICE_TARGET=$(grep CONFIG_TARGET_BOARD .config | awk -F '"' '{print $2}' 2>/dev/null || echo "rockchip")
+          DEVICE_SUBTARGET=$(grep CONFIG_TARGET_SUBTARGET .config | awk -F '"' '{print $2}' 2>/dev/null || echo "rk3568")
+          echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+
+      - name: Generate Config Hash
+        run: |
+          # Create a hash based on essential configuration elements that affect toolchain
+          # excluding package selections which shouldn't invalidate toolchain caches
+          echo "CONFIG_KEY=$(grep -E '^CONFIG_TARGET|^CONFIG_ARCH|^CONFIG_LINUX_|^CONFIG_TOOLCHAIN_|^CONFIG_GCC_|^CONFIG_UCLIBC' .config 2>/dev/null | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
+
+      - name: Setup CCache
+        run: |
+          sudo apt-get install -y ccache
+          mkdir -p .ccache
+          cat > .ccache/ccache.conf << EOF
+          max_size = 6.0G
+          base_dir = $GITHUB_WORKSPACE
+          cache_dir_levels = 2
+          compression = true
+          compression_level = 6
+          sloppiness = file_stat_matches,include_file_mtime,include_file_ctime,pch_defines,time_macros
+          hash_dir = false
+          temporary_dir = /tmp/ccache-temp
+          EOF
+          export CCACHE_DIR=$PWD/.ccache
+          export PATH="/usr/lib/ccache:$PATH"
+          echo "export CCACHE_DIR=$PWD/.ccache" >> $GITHUB_ENV
+          ccache -s
+        shell: bash
+      
+      - name: Prepare CCache Symlink
+        run: |
+          mkdir -p build_dir
+          ln -sf $PWD/.ccache build_dir/ccache
+          
+          # Ensure staging_dir has proper ccache link too
+          mkdir -p staging_dir/toolchain-*/bin
+          ln -sf $(which ccache) staging_dir/toolchain-*/bin/ccache 2>/dev/null || true
+
+      - name: Cache downloads and toolchain
+        id: toolchain
+        uses: actions/cache@v5
+        with:
+          path: |
+            dl
+            build_dir/toolchain-*
+            staging_dir/toolchain-*
+          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          restore-keys: |
+            toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+
+      - name: Cache tools
+        id: tools
+        uses: actions/cache@v5
+        with:
+          path: |
+            build_dir/host*
+            staging_dir/host*
+          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          restore-keys: |
+            tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+
+
+      - name: Cache ccache
+        id: ccache
+        uses: actions/cache@v5
+        with:
+          path: .ccache
+          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          restore-keys: |
+            ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+
+
+      - name: Download packages
+        run: make download -j16
+      
+      - name: Check Server storage 03
+        run: |
+          echo "警告⚠"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+          du -sh build_dir
+          du -sh .ccache
+
+      - name: Compile firmware
+        id: compile
+        run: |
+          export CCACHE_DIR=$PWD/.ccache
+          export PATH="/usr/lib/ccache:$PATH"
+          echo "=== CCache Statistics (Before Build) ==="
+          ccache -s
+          echo "=== Cache Directory Size ==="
+          du -sh .ccache 2>/dev/null || echo "0"
+          echo "================================"
+          echo "Starting compilation with $(nproc) threads"
+          echo "================================"
+          make -j$(nproc) || make -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "================================"
+          echo "CCache Statistics (After Build)"
+          echo "================================"
+          ccache -s
+          echo "=== Final Cache Directory Size ==="
+          du -sh .ccache 2>/dev/null || echo "0"
+
+      - name: Check Server storage 04
+        run: |
+          echo "警告⚠"
+          echo "已安装内存详细信息:"
+          echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+          echo "--------------------------硬盘信息--------------------------"
+          echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+          du -sh build_dir
+          du -sh .ccache
+
+
+      - name: Prepare artifact
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          mkdir -p ./artifact/package
+          mkdir -p ./artifact/buildinfo
+          rm -rf $(find ./bin/targets/ -type d -name "packages") 2>/dev/null || true
+          cp -rf $(find ./bin/packages/ -type f -name "*.ipk" 2>/dev/null) ./artifact/package/ 2>/dev/null || true
+          cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest" 2>/dev/null) ./artifact/buildinfo/ 2>/dev/null || true
+          FIRMWARE_PATH=$(find ./bin/targets/ -type d -name "packages" -prune -o -type f \( -name "*.img.gz" -o -name "*.img" -o -name "*.bin" \) 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "./bin/targets/")
+          echo "FIRMWARE_PATH=$FIRMWARE_PATH" >> $GITHUB_ENV
+          echo "=== Firmware files ==="
+          find ./bin/targets/ -type f \( -name "*.img*" -o -name "*.bin" -o -name "*.gz" \) 2>/dev/null | sort || echo "No firmware found"
+          MANIFEST_FILE=$(find ./bin/targets/ -name "*.manifest" | head -1)
+          if [ -f "$MANIFEST_FILE" ]; then
+            FULL_KERNEL_VERSION=$(grep "^kernel " "$MANIFEST_FILE" | cut -d'-' -f2 | tr -d ' ')
+            KERNEL_VERSION=$(echo "$FULL_KERNEL_VERSION" | sed 's/~.*//')
+            if [ ! -z "$KERNEL_VERSION" ]; then
+              echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+            fi
+          fi
+
+      - name: Upload buildinfo
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_buildinfo_${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}_${{ env.FILE_DATE }}
+          path: ./artifact/buildinfo/
+
+      - name: Upload package
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_package_${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}_${{ env.FILE_DATE }}
+          path: ./artifact/package/
+
+      - name: Upload firmware
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_firmware_${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}_${{ env.FILE_DATE }}
+          path: ./bin/targets/
+
+      - name: Create GitHub Release
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          name: R${{ env.BUILD_DATE }} for ${{ env.FIRMWARE_TAG }}
+          allowUpdates: true
+          tag: ${{ env.FIRMWARE_TAG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: ${{ env.FIRMWARE_PATH }}/*
+          body: |
+            ## 🎉 OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}
+            
+            ### 📒 固件信息
+            - 💻 平台架构: ${{ env.DEVICE_TARGET }}/${{ env.DEVICE_SUBTARGET }}
+            - 🚀 内核版本: ${{ env.KERNEL_VERSION }}
+            - 🌐 默认地址: 192.168.1.1
+            - 🔑 默认密码: admin或无密码
+            - 📅 构建时间: ${{ env.BUILD_DATE }}
+            
+            ### 📝 源码信息
+            - 📦 源码仓库: ${{ env.SOURCE_REPO }}
+            - ${{ env.COMMIT_AUTHOR }}
+            - ${{ env.COMMIT_DATE }}
+            - ${{ env.COMMIT_MESSAGE }}
+            - `${{ env.COMMIT_HASH }}`
+            
+            ### 📦 固件下载说明
+            - 根据设备型号选择对应的固件文件
+            - 使用 sysupgrade 格式保留配置升级
+            - 首次刷机请使用 initramfs 或 SD卡 镜像
+            
+            ### ⚠️ 注意事项
+            - 首次使用请修改密码
+            - 请勿跨版本保留配置刷机
+            - 刷机前请备份重要数据
