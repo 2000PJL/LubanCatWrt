@@ -287,6 +287,21 @@ jobs:
             staging_dir/host*
           key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.TOOLS_KEY }}
 
+      - name: Clean old ccache entries
+        if: always()
+        run: |
+          CACHE_KEY="ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}"
+          echo "Cleaning old ccache entries with prefix: ${CACHE_KEY}-"
+          gh api repos/${{ github.repository }}/actions/caches --paginate \
+            -q ".actions_caches[] | select(.key | startswith(\"${CACHE_KEY}-\")) | .id" \
+          | while read id; do
+              echo "Deleting ccache entry: $id"
+              gh api -X DELETE repos/${{ github.repository }}/actions/caches/$id || true
+            done
+          echo "Done cleaning old ccache entries"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@v4
