@@ -17,6 +17,7 @@ define Device/embedfire_lubancat-1
   DEVICE_VENDOR := EmbedFire
   DEVICE_MODEL := LubanCat-1
   SOC := rk3566
+  SUPPORTED_DEVICES := embedfire,lubancat1 embedfire,lubancat-1
   DEVICE_PACKAGES := kmod-mt7921e wpad-openssl luci-app-modem
 endef
 TARGET_DEVICES += embedfire_lubancat-1
