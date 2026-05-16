@@ -144,15 +144,6 @@ jobs:
           echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
           echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
-      - name: Generate Config Hash
-        run: |
-          # Create a hash based on essential configuration elements that affect toolchain
-          # excluding package selections which shouldn't invalidate toolchain caches
-          echo "CONFIG_KEY=$(grep -E '^CONFIG_TARGET|^CONFIG_ARCH|^CONFIG_LINUX_|^CONFIG_TOOLCHAIN_|^CONFIG_GCC_|^CONFIG_UCLIBC' .config 2>/dev/null | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
-          echo "TOOLS_KEY=$(find tools/ include/ -type f 2>/dev/null | sort | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
-          # Hash full .config + package Makefiles for packages cache
-          echo "PACKAGES_KEY=$(cat .config | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
-
       - name: Setup CCache
         run: |
           sudo apt-get install -y ccache
@@ -192,7 +183,7 @@ jobs:
             dl
             build_dir/toolchain-*
             staging_dir/toolchain-*
-          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
           restore-keys: |
             toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -203,7 +194,7 @@ jobs:
           path: |
             build_dir/host*
             staging_dir/host*
-          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.TOOLS_KEY }}
+          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
           restore-keys: |
             tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -212,9 +203,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .ccache
-          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
           restore-keys: |
-            ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+            ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
       - name: Restore packages cache
         id: packages
@@ -223,7 +214,7 @@ jobs:
           path: |
             staging_dir/target-*
             build_dir/aarch64_generic
-          key: packages-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.PACKAGES_KEY }}
+          key: packages-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
           restore-keys: |
             packages-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
 
@@ -298,7 +289,7 @@ jobs:
             dl
             build_dir/toolchain-*
             staging_dir/toolchain-*
-          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          key: toolchain-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
 
       - name: Save tools cache
         if: always() && steps.tools.outputs.cache-hit != 'true'
@@ -307,14 +298,14 @@ jobs:
           path: |
             build_dir/host*
             staging_dir/host*
-          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.TOOLS_KEY }}
+          key: tools-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
 
       - name: Save ccache
         if: always()
         uses: actions/cache/save@v4
         with:
           path: .ccache
-          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.CONFIG_KEY }}
+          key: ccache-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
 
       - name: Save packages cache
         if: always() && steps.packages.outputs.cache-hit != 'true'
@@ -323,7 +314,7 @@ jobs:
           path: |
             staging_dir/target-*
             build_dir/aarch64_generic
-          key: packages-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.PACKAGES_KEY }}
+          key: packages-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ hashFiles('config/lubancat_defconfig') }}
 
       - name: Verify firmware metadata
         if: steps.compile.outputs.status == 'success'
